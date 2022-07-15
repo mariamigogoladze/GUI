@@ -1,0 +1,1125 @@
+package ge.casatrade.parking.gui.changeconf;
+
+import java.awt.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.math.BigInteger;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.StringTokenizer;
+
+import javax.swing.*;
+import javax.swing.border.Border;
+
+import org.apache.log4j.Logger;
+
+import ge.casatrade.parking.MainListener;
+import ge.casatrade.parking.MainManager;
+import ge.casatrade.parking.gui.MDI;
+import ge.casatrade.parking.gui.pc.AlertBox;
+import ge.casatrade.parking.gui.pc.AlertType;
+import ge.casatrade.parking.util.RefreshParam;
+import ge.dekana.util.MyResourceBundle;
+import ge.dekana.util.MyUtil;
+
+/**
+ * Change system properties from our GUI interface.
+ * This JDialog is made for only ParkingControl staff.
+ *
+ * @author Lasha Andghuladze
+ * @version SDK 1.7
+ */
+public class SetConfiguration {
+    private final MDI jw;
+    private final RefreshParam param;
+    private final MainListener mainListener;
+    private final UsbMount um;
+    private JDialog jd;
+    private JDialog password;
+    private JLabel idLabel;
+    private JLabel myFareKeyLabel;
+    private JLabel comboLabel;
+    private JLabel dhcpLabel;
+    private JLabel dateLabel;
+    private JLabel timeLabel;
+    private JLabel[] options;
+    private JCheckBox dhcp;
+    private JCheckBox readOnly;
+    private JCheckBox creditCard;
+    private JComboBox<ComboItem> connType;
+    private JTextField dateInput;
+    private JTextField timeInput;
+    private JTextField idInput;
+    private JTextField myFareKeyInput;
+    private JTextField[] fields;
+    private JButton save;
+    private JButton cancel;
+    private JPanel panelNetwork = new JPanel();
+    private JPanel panelSettings = new JPanel();
+    private JPanel panelButtons = new JPanel();
+    private GridBagConstraints c;
+    private ArrayList<String> interfacesFile;
+    private boolean onlyRead;
+    private final SimpleDateFormat formatForSystem = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private final String PASSWORD_VALUE;
+    private final static Logger LOGGER = Logger.getLogger(MainManager.class);
+    private final static String[] errors = {MyResourceBundle.getString("ipError"), MyResourceBundle.getString("subnetError"), MyResourceBundle.getString("gatewayError"), MyResourceBundle.getString("ns1Error"), MyResourceBundle.getString("ns2Error")};
+    private final static String ValueFile = "/opt/networkswitch/value";
+    private final static String InterfacesFile = "/etc/network/interfaces";
+    private final static String TunnelShFile = "/etc/tunnel/tunnel.sh";
+    private final static String BannerFile = "/etc/banner";
+    private final static String CMDLineFile = "/boot/cmdline.txt";
+    private final static String PropertiesFile = "/home/pi/PROJECTS/PARKING/properties/properties.prop";
+
+    //ComboBox items predefined
+    private final static ComboItem[] items = new ComboItem[]{
+            new ComboItem("3G", MyResourceBundle.getString("3g")),
+            new ComboItem("ETH", MyResourceBundle.getString("ethernet")),
+            new ComboItem("EROUTER", MyResourceBundle.getString("erouter")),
+            new ComboItem("4G", MyResourceBundle.getString("4g")),
+            new ComboItem("ROUTER", MyResourceBundle.getString("router"))
+    };
+
+    public SetConfiguration(MDI jw, final MainListener mainListener, final RefreshParam param) {
+        this.jw = jw;
+        this.param = param;
+        this.mainListener = mainListener;
+        PASSWORD_VALUE = param.getConfigurationPassword();
+        onlyRead = false;
+        um = new UsbMount(jw);
+        createDialog();
+        cancelListener();
+        saveListener();
+        connectionTypeListener();
+        dhcpListener();
+    }
+
+    /**
+     * prepares dialog after ESC Click and displays password prompt on screen.
+     */
+    public void showDialog() {
+        password.pack();
+        password.setLocationRelativeTo(jw);
+        password.setVisible(true);
+    }
+
+    private void showAfterPassword() {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm");
+
+        Date dateTime = new Date(System.currentTimeMillis());
+
+        dateInput.setText(dateFormat.format(dateTime));
+        timeInput.setText(timeFormat.format(dateTime));
+
+        jd.pack();
+        jd.setLocationRelativeTo(jw);
+        jd.setVisible(true);
+        readValue();
+        readProperties();
+        checkReadOnly();
+    }
+
+    /**
+     * Create dialog on ESC button press
+     */
+    private void createDialog() {
+        jd = new JDialog(jw, MyResourceBundle.getString("setConfiguration"));
+        jd.setMinimumSize(new Dimension(600, 350));
+      //  jd.setLayout(new GridBagLayout());
+        panelNetwork.setLayout(new GridBagLayout());
+        panelSettings.setLayout(new GridBagLayout());
+        jd.setUndecorated(true);
+
+        createPasswordbox();
+
+        options = new JLabel[5];
+        fields = new JTextField[5];
+
+        c = new GridBagConstraints();
+
+        Border border1 = BorderFactory.createTitledBorder("Network");
+        Border border2 = BorderFactory.createTitledBorder("Settings");
+        panelNetwork.setBorder(border1);
+        panelSettings.setBorder(border2);
+
+        panelNetwork.setPreferredSize(new Dimension(300, 350));
+        panelSettings.setPreferredSize(new Dimension(300, 350));
+
+        c.insets = new Insets(10, 10, 5, 5);
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.anchor = GridBagConstraints.PAGE_START;
+
+        panelButtons.setLayout(new GridBagLayout());
+
+        c.gridx =0;
+        c.gridy =0;
+        c.weightx = 0.5;
+        jd.add(panelNetwork, BorderLayout.LINE_START);
+        c.gridx =1;
+        c.gridy =0;
+        c.weightx = 0.5;
+        jd.add(panelSettings, BorderLayout.LINE_END);
+        c.anchor = GridBagConstraints.PAGE_END;
+        jd.add(panelButtons, BorderLayout.PAGE_END);
+
+        createIdBox();
+        createMyFareKeyBox();
+        createComboBox();
+        createEthernetBox();
+        createDateAndTimeBox();
+        createSaveAndCancel();
+        createReadOnly();
+        createCreditCardCheckbox();
+        createAutoMount();
+
+        jd.setResizable(false);
+    }
+
+    /**
+     * Create password box, before opening configuration panel
+     */
+    private void createPasswordbox() {
+        password = new JDialog(jw);
+        password.setMinimumSize(new Dimension(300, 100));
+        password.setUndecorated(true);
+        password.setLayout(new GridBagLayout());
+        GridBagConstraints localC = new GridBagConstraints();
+        localC.insets = new Insets(10, 10, 5, 5);
+        localC.fill = GridBagConstraints.HORIZONTAL;
+        JLabel title = new JLabel(MyResourceBundle.getString("passwordDialog"));
+        title.setHorizontalAlignment(JLabel.CENTER);
+        localC.weightx = 1;
+        localC.gridwidth = 2;
+        localC.gridx = 0;
+        localC.gridy = 0;
+        password.add(title, localC);
+        JPasswordField passBox = new JPasswordField();
+        localC.weightx = 1;
+        localC.gridwidth = 2;
+        localC.gridx = 0;
+        localC.gridy = 1;
+        password.add(passBox, localC);
+        localC.gridwidth = 1;
+        localC.weightx = 0.5;
+        localC.gridx = 0;
+        localC.gridy = 2;
+        JButton enter = new JButton(MyResourceBundle.getString("passwordEnter"));
+        enter.addActionListener(e -> {
+            String tmpPass = String.copyValueOf(passBox.getPassword());
+            tmpPass = encryptString(tmpPass);
+            if (PASSWORD_VALUE == null)
+                new AlertBox(jw, MyResourceBundle.getString("passwordNotInitializedTitle"), MyResourceBundle.getString("passwordNotInitialized"), AlertType.ERROR);
+            if (tmpPass.equals(PASSWORD_VALUE)) {
+                password.dispose();
+                showAfterPassword();
+            } else {
+                new AlertBox(jw, MyResourceBundle.getString("passwordTitle"), MyResourceBundle.getString("passwordWrong"), AlertType.ERROR);
+            }
+            passBox.setText("");
+        });
+        JButton cancel = new JButton(MyResourceBundle.getString("cancel"));
+        cancel.addActionListener(arg0 -> password.dispose());
+
+        password.add(enter, localC);
+        localC.gridwidth = 1;
+        localC.weightx = 0.5;
+        localC.gridx = 1;
+        localC.gridy = 2;
+        password.add(cancel, localC);
+    }
+
+    public static String encryptString(String input) {
+        try {
+            // getInstance() method is called with algorithm SHA-512
+            MessageDigest md = MessageDigest.getInstance("SHA-512");
+
+            // digest() method is called
+            // to calculate message digest of the input string
+            // returned as array of byte
+            byte[] messageDigest = md.digest(input.getBytes());
+
+            // Convert byte array into signum representation
+            BigInteger no = new BigInteger(1, messageDigest);
+
+            // Convert message digest into hex value
+            String hashtext = no.toString(16);
+
+            // Add preceding 0s to make it 32 bit
+            while (hashtext.length() < 32) {
+                hashtext = "0" + hashtext;
+            }
+
+            return hashtext;
+        }
+
+        // For specifying wrong message digest algorithms
+        catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * ID Box create with already defined ID
+     */
+    private void createIdBox() {
+        idLabel = new JLabel(MyResourceBundle.getString("id"));
+   //     idLabel.setSize(150, idLabel.getHeight());
+        idInput = new JTextField();
+      //  c.weightx = 0.3;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 2;
+        c.gridy = 0;
+        panelSettings.add(idLabel, c);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.7;
+        c.gridx = 3;
+        c.gridy = 0;
+        idInput.setText(Integer.toString(param.getID()));
+        panelSettings.add(idInput, c);
+    }
+
+    /**
+     * My Fare Key box with value
+     */
+    private void createMyFareKeyBox() {
+        myFareKeyLabel = new JLabel(MyResourceBundle.getString("myFareKey"));
+     //   myFareKeyLabel.setSize(150, myFareKeyLabel.getHeight());
+        myFareKeyInput = new JTextField();
+    //    c.weightx = 0.3;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 2;
+        c.gridy = 1;
+        panelSettings.add(myFareKeyLabel, c);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.7;
+        c.gridx = 3;
+        c.gridy = 1;
+        panelSettings.add(myFareKeyInput, c);
+    }
+
+    /**
+     * ComboBox with custom ComboItem object
+     */
+    @SuppressWarnings("unchecked")
+    private void createComboBox() {
+        comboLabel = new JLabel(MyResourceBundle.getString("connType"));
+        connType = new JComboBox<>(items);
+        connType.setRenderer(new ComboRenderer<ComboItem>());
+        connType.setMaximumRowCount(4);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+       // c.weightx = 0.3;
+        c.gridx = 0;
+        c.gridy = 0;
+        panelNetwork.add(comboLabel, c);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.7;
+        c.gridx = 1;
+        c.gridy = 0;
+        panelNetwork.add(connType, c);
+
+    }
+
+    /**
+     * Create Ethernet box and enable if Ethernet is selected in ComboBox.
+     */
+    private void createEthernetBox() {
+        dhcpLabel = new JLabel(MyResourceBundle.getString("dhcp"));
+        dhcp = new JCheckBox("");
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.3;
+        c.gridx = 0;
+        c.gridy = 1;
+        panelNetwork.add(dhcpLabel, c);
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.7;
+        c.gridx = 1;
+        c.gridy = 1;
+        panelNetwork.add(dhcp, c);
+
+        //IP BOX
+        options[0] = new JLabel(MyResourceBundle.getString("ip"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+    //    c.weightx = 0.3;
+        c.gridx = 0;
+        c.gridy = 2;
+        panelNetwork.add(options[0], c);
+
+        fields[0] = new JTextField();
+        c.fill = GridBagConstraints.HORIZONTAL;
+    //    c.weightx = 0.7;
+        c.gridx = 1;
+        c.gridy = 2;
+        panelNetwork.add(fields[0], c);
+
+        //SubnetMasks
+        options[1] = new JLabel(MyResourceBundle.getString("subnet"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.3;
+        c.gridx = 0;
+        c.gridy = 3;
+        panelNetwork.add(options[1], c);
+
+        fields[1] = new JTextField();
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.7;
+        c.gridx = 1;
+        c.gridy = 3;
+        panelNetwork.add(fields[1], c);
+
+        //Gateway
+        options[2] = new JLabel(MyResourceBundle.getString("gateway"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.3;
+        c.gridx = 0;
+        c.gridy = 4;
+        panelNetwork.add(options[2], c);
+
+        fields[2] = new JTextField();
+        c.fill = GridBagConstraints.HORIZONTAL;
+       // c.weightx = 0.7;
+        c.gridx = 1;
+        c.gridy = 4;
+        panelNetwork.add(fields[2], c);
+
+        //NS1
+        options[3] = new JLabel(MyResourceBundle.getString("ns1"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+       // c.weightx = 0.3;
+        c.gridx = 0;
+        c.gridy = 5;
+        panelNetwork.add(options[3], c);
+
+        fields[3] = new JTextField();
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.7;
+        c.gridx = 1;
+        c.gridy = 5;
+        panelNetwork.add(fields[3], c);
+
+        //NS2
+        options[4] = new JLabel(MyResourceBundle.getString("ns2"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.3;
+        c.gridx = 0;
+        c.gridy = 6;
+        panelNetwork.add(options[4], c);
+
+        fields[4] = new JTextField();
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.7;
+        c.gridx = 1;
+        c.gridy = 6;
+        panelNetwork.add(fields[4], c);
+
+        //make everything uneditable before Ethernet is chosen
+        dhcp.setEnabled(false);
+        dhcpLabel.setEnabled(false);
+        setEnableOptions(false);
+    }
+
+    /**
+     * Create box to manually select date and time.
+     */
+    private void createDateAndTimeBox() {
+        //Date
+        dateLabel = new JLabel(MyResourceBundle.getString("date"));
+        dateLabel.setSize(150, dateLabel.getHeight());
+        dateInput = new JTextField();
+      //  c.weightx = 0.3;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 2;
+        c.gridy = 2;
+        panelSettings.add(dateLabel, c);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.7;
+        c.gridx = 3;
+        c.gridy = 2;
+
+        panelSettings.add(dateInput, c);
+
+        //Time
+        timeLabel = new JLabel(MyResourceBundle.getString("time"));
+        timeLabel.setSize(150, timeLabel.getHeight());
+        timeInput = new JTextField();
+     //   c.weightx = 0.3;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 2;
+        c.gridy = 3;
+        panelSettings.add(timeLabel, c);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.7;
+        c.gridx = 3;
+        c.gridy = 3;
+
+        panelSettings.add(timeInput, c);
+    }
+
+    /**
+     * Read Only box with checker whether it is selected or not.
+     */
+    private void createReadOnly() {
+        JLabel readOnlyLabel = new JLabel(MyResourceBundle.getString("readOnly"));
+        readOnly = new JCheckBox("");
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.3;
+        c.gridx = 2;
+        c.gridy = 4;
+        panelSettings.add(readOnlyLabel, c);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.7;
+        c.gridx = 3;
+        c.gridy = 4;
+        panelSettings.add(readOnly, c);
+
+        checkReadOnly();
+    }
+
+    /**
+     * Credit Card box with checker whether it is selected or not.
+     */
+    private void createCreditCardCheckbox(){
+        JLabel readOnlyLabel = new JLabel(MyResourceBundle.getString("creditCard"));
+        creditCard = new JCheckBox("");
+        c.fill = GridBagConstraints.HORIZONTAL;
+    //    c.weightx = 0.3;
+        c.gridx = 2;
+        c.gridy = 5;
+        panelSettings.add(readOnlyLabel, c);
+
+        c.fill = GridBagConstraints.HORIZONTAL;
+     //   c.weightx = 0.7;
+        c.gridx = 3;
+        c.gridy = 5;
+        panelSettings.add(creditCard, c);
+    }
+
+    /**
+     * Save and Cancel buttons on panel
+     */
+    private void createSaveAndCancel() {
+        //Save or Cancel buttons
+        save = new JButton(MyResourceBundle.getString("saveConfiguration"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+       // c.weightx = 0.5;
+        c.gridx = 0;
+        c.gridy = 0;
+        panelButtons.add(save, c);
+
+        cancel = new JButton(MyResourceBundle.getString("cancel"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 0.5;
+        c.gridx = 1;
+        c.gridy = 0;
+        panelButtons.add(cancel, c);
+    }
+
+    private void createAutoMount() {
+        JButton mount = new JButton(MyResourceBundle.getString("autoMount"));
+        c.fill = GridBagConstraints.HORIZONTAL;
+      //  c.weightx = 1;
+        c.gridwidth = 2;
+        c.gridx = 0;
+        c.gridy = 1;
+        panelButtons.add(mount, c);
+        mount.addActionListener(arg0 -> um.showDialog());
+    }
+
+    /**
+     * Read CMDLine file and check whether it is read only.
+     */
+    private void checkReadOnly() {
+        BufferedReader br = readFile(CMDLineFile);
+        if (br == null) return;
+        String line;
+        try {
+            while ((line = br.readLine()) != null) {
+                if (line.contains("boot=overlay")) {
+                    enableEveryThing(false);
+                    readOnly.setSelected(true);
+                    onlyRead = true;
+                }
+            }
+            br.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("valueNotFound") + CMDLineFile);
+        }
+    }
+
+    /**
+     * This method disables or enables everything, depends on read only status.
+     *
+     * @param check if is checked or not
+     */
+    private void enableEveryThing(boolean check) {
+        idInput.setEnabled(check);
+        idLabel.setEnabled(check);
+        myFareKeyInput.setEnabled(check);
+        myFareKeyLabel.setEnabled(check);
+        connType.setEnabled(check);
+        comboLabel.setEnabled(check);
+        ComboItem tmp = (ComboItem) connType.getSelectedItem();
+        String type = tmp != null ? tmp.getValue() : "";
+        if (type.equals("Ethernet")) {
+            dhcp.setEnabled(check);
+            dhcpLabel.setEnabled(check);
+            if (!dhcp.isSelected()) setEnableOptions(check);
+        }
+        if (!check) {
+            dhcp.setEnabled(false);
+            dhcpLabel.setEnabled(false);
+            setEnableOptions(false);
+        }
+        dateLabel.setEnabled(check);
+        timeLabel.setEnabled(check);
+        dateInput.setEnabled(check);
+        timeInput.setEnabled(check);
+    }
+
+    /**
+     * This method enables only Ethernet Box, except dhcp.
+     * DHCP is enabled only and only if Ethernet is selected in ComboBox
+     * Ethernet box enables when DHCP CheckBox is unchecked.
+     */
+    private void setEnableOptions(boolean check) {
+        for (int i = 0; i < options.length; i++) {
+            options[i].setEnabled(check);
+            fields[i].setEnabled(check);
+        }
+    }
+
+    /**
+     * Listens DHCP checkbox to enable options.
+     */
+    private void dhcpListener() {
+        dhcp.addActionListener(e -> setEnableOptions(!dhcp.isSelected()));
+    }
+
+    /**
+     * Listens ComboBox and enables/disables Ethernet box accordingly.
+     */
+    private void connectionTypeListener() {
+        connType.addActionListener(e -> {
+            ComboItem tmp = (ComboItem) connType.getSelectedItem();
+            String type = tmp != null ? tmp.getValue() : "";
+            if (type.equals("Ethernet")) {
+                dhcp.setEnabled(true);
+                dhcpLabel.setEnabled(true);
+                setEnableOptions(!dhcp.isSelected());
+            } else {
+                dhcp.setEnabled(false);
+                dhcpLabel.setEnabled(false);
+                setEnableOptions(false);
+            }
+        });
+    }
+
+    /**
+     * Listens to Save button and saves given information in files, then reboots
+     */
+    private void saveListener() {
+        save.addActionListener(e -> {
+            if (onlyRead) {
+                saveReadOnly();
+                JOptionPane.showMessageDialog(jd, MyResourceBundle.getString("confSaved"), MyResourceBundle.getString("success"), JOptionPane.INFORMATION_MESSAGE);
+                mainListener.restartSoftware();
+                return;
+            }
+            SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+            SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm");
+            int id = checkId();
+            ComboItem tmp = (ComboItem) connType.getSelectedItem();
+            String type = tmp != null ? tmp.getValue() : "";
+            String typeForFile = tmp != null ? tmp.getKey() : "";
+            if (id == -1) return;
+            if (type.equals("Ethernet")) {
+                if (!dhcp.isSelected()) {
+                    for (int i = 0; i < fields.length; i++) {
+                        if (!checkIP(fields[i].getText())) {
+                            showError(errors[i]);
+                            return;
+                        }
+                    }
+                }
+            }
+            Date newDate;
+            Date newTime;
+            try {
+                newDate = dateFormat.parse(dateInput.getText());
+            } catch (ParseException e1) {
+                showError(MyResourceBundle.getString("dateError"));
+                return;
+            }
+
+            try {
+                newTime = timeFormat.parse(timeInput.getText());
+            } catch (ParseException e1) {
+                showError(MyResourceBundle.getString("timeError"));
+                return;
+            }
+
+            long finalDate = newDate.getTime() + newTime.getTime();
+            Date date = new Date(finalDate);
+            changeBannerFile(id);
+            changeTunnelShFile(id);
+            changeValueFile(typeForFile);
+            param.setID(id);
+            param.setPrivateKey(MyUtil.convertHEXString2ByteArray(myFareKeyInput.getText()));
+            changeSystemDate(date);
+            if (type.equals("Ethernet")) changeInterfacesFile();
+            mainListener.saveProperties();
+            saveReadOnly();
+            JOptionPane.showMessageDialog(jd, MyResourceBundle.getString("confSaved"), MyResourceBundle.getString("success"), JOptionPane.INFORMATION_MESSAGE);
+            mainListener.restartSoftware();
+            jd.pack();
+        });
+    }
+
+    /**
+     * Saves read only checkbox in CMDLine file.
+     */
+    private void saveReadOnly() {
+        ArrayList<String> cmdFile = new ArrayList<>();
+        BufferedReader br = readFile(CMDLineFile);
+        if (br == null) return;
+        String line;
+        try {
+            while ((line = br.readLine()) != null) {
+                cmdFile.add(line);
+            }
+            br.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("valueNotFound") + CMDLineFile);
+        }
+
+        //If read only is selected, check if it exists in cmdline.txt and act accordingly
+        String tmp = cmdFile.get(0);
+        if (readOnly.isSelected()) {
+            for (String s : cmdFile) {
+                if (s.contains("boot=overlay")) return;
+            }
+            cmdFile.set(0, "boot=overlay " + tmp);
+        } else {
+            boolean notWritten = true;
+            for (String s : cmdFile) {
+                if (s.contains("boot=overlay")) {
+                    notWritten = false;
+                    break;
+                }
+            }
+            if (!notWritten) cmdFile.set(0, tmp.substring(13));
+        }
+
+        //Write changed file to cmdline.txt back.
+        try {
+            FileWriter fw = new FileWriter(CMDLineFile);
+            BufferedWriter out = new BufferedWriter(fw);
+            for (String str : cmdFile) {
+                out.write(str);
+                out.write(System.getProperty("line.separator"));
+            }
+            out.flush();
+            out.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("fileNotFound") + CMDLineFile);
+        }
+    }
+
+    /**
+     * Saves tunnel.sh file accordingly
+     *
+     * @param id box ID
+     */
+    private void changeTunnelShFile(int id) {
+        ArrayList<String> newTunnel = readTunnelSh(id);
+        FileWriter fw;
+        try {
+            fw = new FileWriter(TunnelShFile);
+            BufferedWriter out = new BufferedWriter(fw);
+            for (String str : newTunnel) {
+                System.out.println(str);
+                out.write(str);
+                out.write(System.getProperty("line.separator"));
+            }
+            out.flush();
+            out.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("fileNotFound") + TunnelShFile);
+        }
+    }
+
+    /**
+     * Returns tunnel.sh file line by line in ArrayList
+     *
+     * @param id Box ID
+     * @return tunnel.sh file
+     */
+    private ArrayList<String> readTunnelSh(int id) {
+        BufferedReader br = readFile(TunnelShFile);
+        String line;
+        ArrayList<String> tmp = new ArrayList<>();
+        if (br == null) return tmp;
+        try {
+            while ((line = br.readLine()) != null) {
+                line = line.replaceAll("37.*?:localhost", "37" + id + ":localhost");
+                tmp.add(line);
+            }
+            br.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("valueNotFound") + TunnelShFile);
+        }
+        return tmp;
+    }
+
+    /**
+     * Saves banner file with given id.
+     *
+     * @param id Box ID
+     */
+    private void changeBannerFile(int id) {
+        ArrayList<String> newBanner = readBanner(id);
+        FileWriter fw;
+        try {
+            fw = new FileWriter(BannerFile);
+            BufferedWriter out = new BufferedWriter(fw);
+            for (String str : newBanner) {
+                out.write(str);
+                out.write(System.getProperty("line.separator"));
+            }
+            out.flush();
+            out.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("fileNotFound") + BannerFile);
+        }
+    }
+
+    /**
+     * Reads current banner from file and returns it line by line with Array
+     *
+     * @param id Box ID
+     * @return banner file
+     */
+    private ArrayList<String> readBanner(int id) {
+        BufferedReader br = readFile(BannerFile);
+        String line;
+        ArrayList<String> tmp = new ArrayList<>();
+        if (br == null) return tmp;
+        ComboItem cmbitem = (ComboItem) connType.getSelectedItem();
+        String type;
+        if (cmbitem != null) {
+            type = cmbitem.getValue();
+            try {
+                while ((line = br.readLine()) != null) {
+                    if (line.contains("ID:")) {
+                        line = "ID:" + id;
+                    }
+                    if (line.contains("IP:") && !dhcp.isSelected() && type.equals("Ethernet")) {
+                        line = "IP:" + fields[0].getText();
+                    } else if (line.contains("IP:")) {
+                        line = "IP:";
+                    }
+                    tmp.add(line);
+                }
+                br.close();
+            } catch (IOException e) {
+                System.out.println(MyResourceBundle.getString("valueNotFound") + BannerFile);
+            }
+        }
+        return tmp;
+    }
+
+    /**
+     * Reads properties.prop file and fills matching box
+     */
+    private void readProperties() {
+        BufferedReader br = readFile(PropertiesFile);
+        if (br == null) return;
+        String line;
+        try {
+            while ((line = br.readLine()) != null) {
+                if (line.contains("defaultkey=")) {
+                    myFareKeyInput.setText(line.substring(11));
+                }
+            }
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("valueNotFound") + PropertiesFile);
+        }
+    }
+
+    /**
+     * Just cancel button.
+     */
+    private void cancelListener() {
+        cancel.addActionListener(e -> jd.dispose());
+    }
+
+    /**
+     * Error modal for wrong input
+     *
+     * @param error Error message
+     */
+    private void showError(String error) {
+        JOptionPane.showMessageDialog(jd, error, MyResourceBundle.getString("errorOccured"), JOptionPane.ERROR_MESSAGE);
+    }
+
+    /**
+     * ID Checker for wrong input
+     *
+     * @return if ID is correct return id, else -1
+     */
+    private int checkId() {
+        try {
+            int id = Integer.parseInt(idInput.getText());
+            if (id > 10000) showError(MyResourceBundle.getString("idMaxError"));
+            else return id;
+        } catch (NumberFormatException ex) {
+            showError(MyResourceBundle.getString("idNumberError"));
+        }
+        return -1;
+    }
+
+    /**
+     * Checks if IP input is correct.
+     *
+     * @param ip String ip
+     * @return boolean if ip is correct
+     */
+    private boolean checkIP(String ip) {
+        try {
+            final InetAddress inet = InetAddress.getByName(ip);
+            return inet.getHostAddress().equals(ip)
+                    && inet instanceof Inet4Address;
+        } catch (final UnknownHostException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Buffered reader for bunch of methods
+     *
+     * @param FileName filename to read from SD.
+     * @return BufferedReader of read file.
+     */
+    private BufferedReader readFile(String FileName) {
+        File file = new File(FileName);
+        try {
+            return new BufferedReader(new FileReader(file));
+        } catch (FileNotFoundException e) {
+            System.out.println(MyResourceBundle.getString("fileNotFound") + ValueFile);
+        }
+        return null;
+    }
+
+    /**
+     * Reads value from Value file and selects it in ComboBox.
+     */
+    private void readValue() {
+        BufferedReader br = readFile(ValueFile);
+        if (br == null) return;
+        String type;
+        readDHCP();
+        try {
+            if ((type = br.readLine()) != null) {
+                ComboItem toSelect = null;
+                for (ComboItem item : items) {
+                    if (item.getKey().equalsIgnoreCase(type)) {
+                        toSelect = item;
+                    }
+                }
+                connType.setSelectedItem(toSelect);
+                if (toSelect != null && !toSelect.getKey().equalsIgnoreCase("ETH")) {
+                    dhcp.setEnabled(false);
+                    dhcpLabel.setEnabled(false);
+                    setEnableOptions(false);
+                }
+            }
+            br.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("valueNotFound") + ValueFile);
+        }
+    }
+
+    /**
+     * Reads not DHCP properties from Interfaces file.
+     */
+    private void readDHCP() {
+        BufferedReader br = readFile(InterfacesFile);
+        if (br == null) return;
+        interfacesFile = new ArrayList<>();
+        try {
+            String str;
+            while ((str = br.readLine()) != null) {
+                StringTokenizer st = new StringTokenizer(str, " ");
+                interfacesFile.add(str);
+                while (st.hasMoreTokens()) {
+                    String next = st.nextToken();
+                    if (next.charAt(0) == '#') continue;
+                    if (next.equalsIgnoreCase("iface") &&
+                            st.nextToken().equalsIgnoreCase("eth0") &&
+                            st.nextToken().equalsIgnoreCase("inet")) {
+                        String isDHCP = st.nextToken();
+                        //System.out.println(isDHCP);
+                        if (isDHCP.equalsIgnoreCase("dhcp")) {
+                            dhcp.setSelected(true);
+                            setEnableOptions(false);
+                        } else {
+                            dhcp.setSelected(false);
+                            setEnableOptions(true);
+                        }
+                    }
+                    if (next.equalsIgnoreCase("address")) {
+                        fields[0].setText(st.nextToken());
+                    }
+                    if (next.equalsIgnoreCase("netmask")) {
+                        fields[1].setText(st.nextToken());
+                    }
+                    if (next.equalsIgnoreCase("gateway")) {
+                        fields[2].setText(st.nextToken());
+                    }
+                    if (next.equalsIgnoreCase("dns-nameservers")) {
+                        fields[3].setText(st.nextToken());
+                        fields[4].setText(st.nextToken());
+                    }
+                }
+            }
+            br.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("valueNotFound") + InterfacesFile);
+        }
+    }
+
+    /**
+     * Changes Value file to selected one.
+     *
+     * @param type String of value, ETH, 3G, 4G, ROUTER OR EROUTER.
+     */
+    private void changeValueFile(String type) {
+        FileWriter fw;
+        try {
+            fw = new FileWriter(ValueFile);
+            BufferedWriter out = new BufferedWriter(fw);
+            out.write(type);
+            out.flush();
+            out.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("fileNotFound") + ValueFile);
+        }
+    }
+
+    /**
+     * Reads interfaces file and saves it in private ArrayList
+     */
+    private void readInterfaceFile() {
+        BufferedReader br = readFile(InterfacesFile);
+        if (br == null) return;
+        interfacesFile = new ArrayList<>();
+        try {
+            String str;
+            while ((str = br.readLine()) != null) {
+                interfacesFile.add(str);
+            }
+            br.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("valueNotFound") + InterfacesFile);
+        }
+    }
+
+    /**
+     * Changes Interfaces file to user inputed data.
+     */
+    private void changeInterfacesFile() {
+        boolean isDHCP = dhcp.isSelected();
+        if (interfacesFile == null) {
+            readInterfaceFile();
+        }
+        for (int i = 0; i < interfacesFile.size(); i++) {
+            String tmp = interfacesFile.get(i);
+            if (tmp.isEmpty()) continue;
+            if (tmp.charAt(0) != '#' && tmp.contains("iface") && tmp.contains("eth0") && tmp.contains("inet")) {
+                tmp = (isDHCP) ? "iface eth0 inet dhcp" : "iface eth0 inet static";
+                interfacesFile.set(i, tmp);
+            }
+            if (!isDHCP) {
+                if (tmp.charAt(0) != '#' && tmp.contains("address")) {
+                    tmp = "address " + fields[0].getText();
+                    interfacesFile.set(i, tmp);
+                }
+                if (tmp.charAt(0) != '#' && tmp.contains("netmask")) {
+                    tmp = "netmask " + fields[1].getText();
+                    interfacesFile.set(i, tmp);
+                }
+                if (tmp.charAt(0) != '#' && tmp.contains("gateway")) {
+                    tmp = "gateway " + fields[2].getText();
+                    interfacesFile.set(i, tmp);
+                }
+                if (tmp.charAt(0) != '#' && tmp.contains("network ")) {
+                    String gtwIp = fields[2].getText();
+                    String ip = gtwIp.substring(0, gtwIp.lastIndexOf(".")) + ".0";
+                    tmp = "network " + ip;
+                    interfacesFile.set(i, tmp);
+                }
+                if (tmp.charAt(0) != '#' && tmp.contains("broadcast")) {
+                    String gtwIp = fields[2].getText();
+                    String ip = gtwIp.substring(0, gtwIp.lastIndexOf(".")) + ".255";
+                    tmp = "broadcast " + ip;
+                    interfacesFile.set(i, tmp);
+                }
+                if (tmp.charAt(0) != '#' && tmp.contains("dns-nameservers")) {
+                    tmp = "dns-nameservers " + fields[3].getText() + " " + fields[4].getText();
+                    interfacesFile.set(i, tmp);
+                }
+            }
+        }
+
+        try {
+            FileWriter fw = new FileWriter(InterfacesFile);
+            BufferedWriter out = new BufferedWriter(fw);
+            for (String s : interfacesFile) {
+                out.write(s);
+                out.write(System.getProperty("line.separator"));
+            }
+            out.flush();
+            out.close();
+        } catch (IOException e) {
+            System.out.println(MyResourceBundle.getString("fileNotFound") + InterfacesFile);
+        }
+
+    }
+
+    /**
+     * Changes System date if Ethernet is not active.
+     *
+     * @param date Datetime to change time
+     */
+    private void changeSystemDate(Date date) {
+        Runtime rt = Runtime.getRuntime();
+        mainListener.writeTS("++++++++++++++++++++++++============ TIME SYNCHRON (" + formatForSystem.format(date) + ") ++++++++++==========");
+        if (MyUtil.isLinux()) {
+            try {
+                rt.exec(new String[]{"date", "--set", formatForSystem.format(date)});
+            } catch (IOException e) {
+                e.printStackTrace();
+                LOGGER.error(e);
+            }
+        }
+    }
+}
